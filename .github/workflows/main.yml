@@ -1,0 +1,41 @@
+name: Build Flutter APK (arm64 only)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17' # نسخة 17 هي الأنسب لـ Flutter 3.38
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5' # حددنا النسخة التي تحاول استخدامها
+          channel: 'stable'
+
+      - name: Flutter Clean & Get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build APK (arm64 only)
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Upload arm64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-arm64-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
