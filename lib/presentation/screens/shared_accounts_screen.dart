@@ -45,24 +45,40 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
     try {
       final userId = _authController.currentUserId;
       
+      if (userId.isEmpty || userId == 'local_user') {
+        Get.snackbar(
+          'تنبيه',
+          'يجب تسجيل الدخول للوصول إلى الحسابات المشتركة',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppColors.warning,
+          colorText: Colors.white,
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+      
       // تحميل الحسابات المشتركة
-      _sharedAccounts = await _firebaseService.getUserAccounts(userId);
-      _sharedAccounts = _sharedAccounts
+      final allAccounts = await _firebaseService.getUserAccounts(userId);
+      _sharedAccounts = allAccounts
           .where((a) => a.accountCategory == AppConstants.accountCategoryShared)
           .toList();
       
       // تحميل الطلبات المعلقة
       _pendingRequests = await _firebaseService.getIncomingRequests(userId);
     } catch (e) {
-      Get.snackbar(
-        'خطأ',
-        'حدث خطأ أثناء تحميل البيانات',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppColors.error,
-        colorText: Colors.white,
-      );
+      if (mounted) {
+        Get.snackbar(
+          'خطأ',
+          'حدث خطأ أثناء تحميل البيانات: $e',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppColors.error,
+          colorText: Colors.white,
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -397,25 +413,48 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
   }
 
   void _respondToRequest(AccountRequestEntity request, bool accept) async {
-    final success = await _firebaseService.respondToAccountRequest(
-      request.requestId,
-      accept,
-      null,
+    // عرض مؤشر التحميل
+    Get.dialog(
+      const Center(child: CircularProgressIndicator()),
+      barrierDismissible: false,
     );
-
-    if (success) {
-      Get.snackbar(
-        'نجح',
-        accept ? 'تم قبول الطلب' : 'تم رفض الطلب',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppColors.success,
-        colorText: Colors.white,
+    
+    try {
+      final success = await _firebaseService.respondToAccountRequest(
+        request.requestId,
+        accept,
+        null,
       );
-      await _loadData();
-    } else {
+
+      // إغلاق مؤشر التحميل
+      Get.back();
+
+      if (success) {
+        Get.snackbar(
+          'نجح',
+          accept ? 'تم قبول الطلب وإنشاء الحساب المشترك' : 'تم رفض الطلب',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppColors.success,
+          colorText: Colors.white,
+          duration: const Duration(seconds: 3),
+        );
+        await _loadData();
+      } else {
+        Get.snackbar(
+          'خطأ',
+          'حدث خطأ أثناء الرد على الطلب',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppColors.error,
+          colorText: Colors.white,
+        );
+      }
+    } catch (e) {
+      // إغلاق مؤشر التحميل في حالة الخطأ
+      Get.back();
+      
       Get.snackbar(
         'خطأ',
-        'حدث خطأ أثناء الرد على الطلب',
+        'حدث خطأ: $e',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: AppColors.error,
         colorText: Colors.white,

@@ -117,6 +117,10 @@ class AccountRequestEntity {
       'createdAt': createdAt.toIso8601String(),
       'respondedAt': respondedAt?.toIso8601String(),
       'responseNotes': responseNotes,
+      'fromUserName': fromUserName,
+      'toUserName': toUserName,
+      'fromUserEmail': fromUserEmail,
+      'toUserEmail': toUserEmail,
     };
   }
 

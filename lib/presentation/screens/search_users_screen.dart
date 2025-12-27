@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '/core/constants/app_colors.dart';
-import '/data/services/firebase_service.dart';
+import '/data/services/firestore_auth_service.dart';
 import '/domain/entities/entities.dart';
+import '/presentation/controllers/auth_controller.dart';
 
 /// شاشة البحث عن مستخدمين
 class SearchUsersScreen extends StatefulWidget {
@@ -14,7 +15,7 @@ class SearchUsersScreen extends StatefulWidget {
 
 class _SearchUsersScreenState extends State<SearchUsersScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final FirebaseService _firebaseService = FirebaseService.instance;
+  final FirestoreAuthService _authService = FirestoreAuthService.instance;
   
   List<UserEntity> _searchResults = [];
   bool _isLoading = false;
@@ -28,7 +29,16 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
 
   Future<void> _searchUsers() async {
     final query = _searchController.text.trim();
-    if (query.isEmpty) return;
+    if (query.isEmpty) {
+      Get.snackbar(
+        'تنبيه',
+        'يرجى إدخال بريد إلكتروني أو اسم مستخدم للبحث',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppColors.warning,
+        colorText: Colors.white,
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -36,10 +46,26 @@ class _SearchUsersScreenState extends State<SearchUsersScreen> {
     });
 
     try {
-      final results = await _firebaseService.searchUsersByEmail(query);
+      // استخدام searchUsers من FirestoreAuthService
+      final results = await _authService.searchUsers(query);
+      
+      // استبعاد المستخدم الحالي من النتائج
+      final authController = Get.find<AuthController>();
+      final currentUserId = authController.currentUserId;
+      
       setState(() {
-        _searchResults = results;
+        _searchResults = results.where((user) => user.userId != currentUserId).toList();
       });
+      
+      if (_searchResults.isEmpty) {
+        Get.snackbar(
+          'لا توجد نتائج',
+          'لم يتم العثور على مستخدمين مطابقين',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: AppColors.info,
+          colorText: Colors.white,
+        );
+      }
     } catch (e) {
       Get.snackbar(
         'خطأ',

@@ -10,7 +10,7 @@ import '/data/services/connectivity_service.dart';
 import '/data/services/sync_service.dart';
 import '/presentation/controllers/controllers.dart';
 import '/presentation/screens/splash_screen.dart';
-
+import 'package:flutter_localizations/flutter_localizations.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -62,7 +62,17 @@ class HesabatiApp extends StatelessWidget {
       return GetMaterialApp(
         title: 'app_name'.tr,
         debugShowCheckedModeBanner: false,
-        
+        localizationsDelegates:const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        // اللغات المدعومة في التطبيق
+        supportedLocales:const [
+          Locale('ar', 'EG'), // اللغة العربية - مصر
+          Locale('en', 'US'), // الإنجليزية - أمريكا
+        ],
+        // اللغة الحالية الواجهة
         // Themes
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,

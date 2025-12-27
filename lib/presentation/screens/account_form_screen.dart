@@ -225,6 +225,9 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
         'sync_status': AppConstants.syncStatusOffline,
       };
 
+      bool saveSuccess = false;
+      String successMessage = '';
+      
       if (widget.account == null) {
         // إنشاء حساب جديد - هنا نستخدم الرصيد الأولي المدخل
         accountData['balance'] = double.tryParse(_balanceController.text) ?? 0.0;
@@ -252,13 +255,8 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           await DatabaseService.instance.insert('transactions', transactionData);
         }
         
-        Get.snackbar(
-          'نجح',
-          'تم إنشاء الحساب بنجاح',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppColors.success,
-          colorText: Colors.white,
-        );
+        saveSuccess = true;
+        successMessage = 'تم إنشاء الحساب بنجاح';
       } else {
         // تحديث الحساب الموجود
         await DatabaseService.instance.update(
@@ -268,21 +266,45 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           whereArgs: [widget.account!['account_id']],
         );
         
-        Get.snackbar(
-          'نجح',
-          'تم تحديث الحساب بنجاح',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppColors.success,
-          colorText: Colors.white,
-        );
+        saveSuccess = true;
+        successMessage = 'تم تحديث الحساب بنجاح';
       }
 
       // تحديث قائمة الحسابات
       final accountController = Get.find<LocalAccountController>();
       await accountController.fetchLocalAccounts();
 
-      Get.back(result: true);
+      // إيقاف التحميل قبل الخروج
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      
+      // الخروج من الشاشة مع إظهار رسالة النجاح بعد تأخير قصير
+      if (saveSuccess) {
+        // العودة أولاً
+        Get.back(result: true);
+        
+        // ثم إظهار رسالة النجاح
+        Future.delayed(const Duration(milliseconds: 100), () {
+          Get.snackbar(
+            'نجح',
+            successMessage,
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppColors.success,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 2),
+          );
+        });
+      }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      
       Get.snackbar(
         'خطأ',
         'حدث خطأ أثناء حفظ الحساب: $e',
@@ -290,10 +312,6 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
         backgroundColor: AppColors.error,
         colorText: Colors.white,
       );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 }

@@ -459,6 +459,9 @@ class _CreateSharedAccountScreenState extends State<CreateSharedAccountScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // الحصول على اسم المرسل الحالي
+      final currentUser = _authController.currentUser.value;
+      
       final request = AccountRequestEntity(
         requestId: const Uuid().v4(),
         fromUserId: _authController.currentUserId,
@@ -467,19 +470,28 @@ class _CreateSharedAccountScreenState extends State<CreateSharedAccountScreen> {
         accountType: _selectedAccountType,
         requestStatus: AppConstants.requestStatusPending,
         createdAt: DateTime.now(),
+        fromUserName: currentUser?.username,
+        fromUserEmail: currentUser?.email,
+        toUserName: _selectedUser!.username,
+        toUserEmail: _selectedUser!.email,
       );
 
       final result = await _firebaseService.createAccountRequest(request);
       
       if (result != null) {
+        // العودة أولاً ثم إظهار الرسالة
         Get.back(result: true);
-        Get.snackbar(
-          'نجح',
-          'تم إرسال الطلب بنجاح',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: AppColors.success,
-          colorText: Colors.white,
-        );
+        
+        Future.delayed(const Duration(milliseconds: 100), () {
+          Get.snackbar(
+            'نجح',
+            'تم إرسال الطلب بنجاح إلى ${_selectedUser!.username}',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: AppColors.success,
+            colorText: Colors.white,
+            duration: const Duration(seconds: 3),
+          );
+        });
       } else {
         Get.snackbar(
           'خطأ',
@@ -498,7 +510,9 @@ class _CreateSharedAccountScreenState extends State<CreateSharedAccountScreen> {
         colorText: Colors.white,
       );
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

@@ -23,8 +23,31 @@ class SyncService extends GetxService {
   final syncProgress = 0.0.obs;
   final errorMessage = ''.obs;
 
+  @override
+  void onInit() {
+    super.onInit();
+    // تحديث عدد البيانات المعلقة عند بدء الخدمة
+    _updatePendingCount();
+  }
+
   /// بدء عملية المزامنة الكاملة
   Future<bool> syncAllData() async {
+    // التحقق من وجود AuthController
+    if (!Get.isRegistered<AuthController>()) {
+      errorMessage.value = 'خطأ: لم يتم تهيئة المصادقة';
+      syncStatus.value = 'error';
+      return false;
+    }
+    
+    final authController = Get.find<AuthController>();
+    
+    // التحقق من أن المستخدم في الوضع المتصل
+    if (authController.isLocalMode) {
+      errorMessage.value = 'المزامنة غير متاحة في الوضع المحلي. يرجى تسجيل الدخول أولاً.';
+      syncStatus.value = 'error';
+      return false;
+    }
+    
     final connectivityService = Get.find<ConnectivityService>();
     
     if (!connectivityService.isConnected.value) {
@@ -45,21 +68,35 @@ class SyncService extends GetxService {
 
       // مزامنة الحسابات
       syncProgress.value = 0.2;
-      await syncAccounts();
+      final accountsSynced = await syncAccounts();
+      if (!accountsSynced) {
+        if (kDebugMode) {
+          debugPrint('Warning: Account sync had issues but continuing...');
+        }
+      }
 
       // مزامنة العمليات
       syncProgress.value = 0.5;
-      await syncTransactions();
+      final transactionsSynced = await syncTransactions();
+      if (!transactionsSynced) {
+        if (kDebugMode) {
+          debugPrint('Warning: Transactions sync had issues but continuing...');
+        }
+      }
 
       // مزامنة الطلبات
       syncProgress.value = 0.8;
-      await syncRequests();
+      final requestsSynced = await syncRequests();
+      if (!requestsSynced) {
+        if (kDebugMode) {
+          debugPrint('Warning: Requests sync had issues but continuing...');
+        }
+      }
 
       // تحديث وقت آخر مزامنة
       syncProgress.value = 1.0;
       lastSyncTime.value = DateTime.now().toIso8601String();
       
-      final authController = Get.find<AuthController>();
       await authController.updateLastSyncTime();
 
       syncStatus.value = 'success';
@@ -84,6 +121,13 @@ class SyncService extends GetxService {
       final authController = Get.find<AuthController>();
       final userId = authController.currentUserId;
 
+      if (userId.isEmpty || userId == 'local_user') {
+        if (kDebugMode) {
+          debugPrint('Cannot sync accounts: Invalid user ID');
+        }
+        return false;
+      }
+
       // رفع الحسابات المحلية غير المزامنة
       final unsyncedAccounts = await _databaseService.query(
         'accounts',
@@ -91,48 +135,79 @@ class SyncService extends GetxService {
         whereArgs: [userId],
       );
 
+      if (kDebugMode) {
+        debugPrint('Found ${unsyncedAccounts.length} unsynced accounts to upload');
+      }
+
       for (final accountMap in unsyncedAccounts) {
-        final account = AccountEntity.fromMap(accountMap);
-        final remoteId = await _firebaseService.createAccount(account);
-        
-        if (remoteId != null) {
-          await _databaseService.update(
-            'accounts',
-            {
-              'is_synced': 1,
-              'sync_status': AppConstants.syncStatusSynced,
-            },
-            where: 'account_id = ?',
-            whereArgs: [account.accountId],
-          );
+        try {
+          final account = AccountEntity.fromMap(accountMap);
+          final remoteId = await _firebaseService.createAccount(account);
+          
+          if (remoteId != null) {
+            await _databaseService.update(
+              'accounts',
+              {
+                'is_synced': 1,
+                'sync_status': AppConstants.syncStatusSynced,
+              },
+              where: 'account_id = ?',
+              whereArgs: [account.accountId],
+            );
+            if (kDebugMode) {
+              debugPrint('Account ${account.accountName} synced successfully');
+            }
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Error syncing account: $e');
+          }
+          // استمر في مزامنة الحسابات الأخرى
         }
       }
 
       // تحميل الحسابات من Firebase
       final remoteAccounts = await _firebaseService.getUserAccounts(userId);
       
+      if (kDebugMode) {
+        debugPrint('Found ${remoteAccounts.length} accounts from Firebase');
+      }
+      
       for (final remoteAccount in remoteAccounts) {
-        // التحقق من وجود الحساب محلياً
-        final localResults = await _databaseService.query(
-          'accounts',
-          where: 'account_id = ?',
-          whereArgs: [remoteAccount.accountId],
-        );
+        try {
+          // التحقق من وجود الحساب محلياً
+          final localResults = await _databaseService.query(
+            'accounts',
+            where: 'account_id = ?',
+            whereArgs: [remoteAccount.accountId],
+          );
 
-        if (localResults.isEmpty) {
-          // إضافة الحساب محلياً
-          await _databaseService.insert('accounts', remoteAccount.toMap());
-        } else {
-          // تحديث الحساب المحلي
-          final localAccount = AccountEntity.fromMap(localResults.first);
-          if (remoteAccount.updatedAt.isAfter(localAccount.updatedAt)) {
-            await _databaseService.update(
-              'accounts',
-              remoteAccount.toMap(),
-              where: 'account_id = ?',
-              whereArgs: [remoteAccount.accountId],
-            );
+          if (localResults.isEmpty) {
+            // إضافة الحساب محلياً
+            await _databaseService.insert('accounts', remoteAccount.toMap());
+            if (kDebugMode) {
+              debugPrint('Downloaded account: ${remoteAccount.accountName}');
+            }
+          } else {
+            // تحديث الحساب المحلي
+            final localAccount = AccountEntity.fromMap(localResults.first);
+            if (remoteAccount.updatedAt.isAfter(localAccount.updatedAt)) {
+              await _databaseService.update(
+                'accounts',
+                remoteAccount.toMap(),
+                where: 'account_id = ?',
+                whereArgs: [remoteAccount.accountId],
+              );
+              if (kDebugMode) {
+                debugPrint('Updated local account: ${remoteAccount.accountName}');
+              }
+            }
           }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Error processing remote account: $e');
+          }
+          // استمر في معالجة الحسابات الأخرى
         }
       }
 
@@ -151,6 +226,13 @@ class SyncService extends GetxService {
       final authController = Get.find<AuthController>();
       final userId = authController.currentUserId;
 
+      if (userId.isEmpty || userId == 'local_user') {
+        if (kDebugMode) {
+          debugPrint('Cannot sync transactions: Invalid user ID');
+        }
+        return false;
+      }
+
       // الحصول على حسابات المستخدم
       final accounts = await _databaseService.query(
         'accounts',
@@ -168,45 +250,78 @@ class SyncService extends GetxService {
           whereArgs: [accountId],
         );
 
+        if (kDebugMode) {
+          debugPrint('Found ${unsyncedTransactions.length} unsynced transactions for account $accountId');
+        }
+
         for (final transactionMap in unsyncedTransactions) {
-          final transaction = TransactionEntity.fromMap(transactionMap);
-          final remoteId = await _firebaseService.createTransaction(transaction);
-          
-          if (remoteId != null) {
-            await _databaseService.update(
-              'transactions',
-              {
-                'is_synced': 1,
-                'transaction_status': AppConstants.syncStatusSynced,
-              },
-              where: 'transaction_id = ?',
-              whereArgs: [transaction.transactionId],
-            );
+          try {
+            final transaction = TransactionEntity.fromMap(transactionMap);
+            final remoteId = await _firebaseService.createTransaction(transaction);
+            
+            if (remoteId != null) {
+              await _databaseService.update(
+                'transactions',
+                {
+                  'is_synced': 1,
+                  'transaction_status': AppConstants.syncStatusSynced,
+                },
+                where: 'transaction_id = ?',
+                whereArgs: [transaction.transactionId],
+              );
+              if (kDebugMode) {
+                debugPrint('Transaction ${transaction.transactionId} synced successfully');
+              }
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              debugPrint('Error syncing transaction: $e');
+            }
+            // استمر في مزامنة العمليات الأخرى
           }
         }
 
         // تحميل العمليات من Firebase
-        final remoteTransactions = await _firebaseService.getAccountTransactions(accountId);
-        
-        for (final remoteTransaction in remoteTransactions) {
-          final localResults = await _databaseService.query(
-            'transactions',
-            where: 'transaction_id = ?',
-            whereArgs: [remoteTransaction.transactionId],
-          );
-
-          if (localResults.isEmpty) {
-            await _databaseService.insert('transactions', remoteTransaction.toMap());
-          } else {
-            final localTransaction = TransactionEntity.fromMap(localResults.first);
-            if (remoteTransaction.updatedAt.isAfter(localTransaction.updatedAt)) {
-              await _databaseService.update(
+        try {
+          final remoteTransactions = await _firebaseService.getAccountTransactions(accountId);
+          
+          if (kDebugMode) {
+            debugPrint('Found ${remoteTransactions.length} transactions from Firebase for account $accountId');
+          }
+          
+          for (final remoteTransaction in remoteTransactions) {
+            try {
+              final localResults = await _databaseService.query(
                 'transactions',
-                remoteTransaction.toMap(),
                 where: 'transaction_id = ?',
                 whereArgs: [remoteTransaction.transactionId],
               );
+
+              if (localResults.isEmpty) {
+                await _databaseService.insert('transactions', remoteTransaction.toMap());
+                if (kDebugMode) {
+                  debugPrint('Downloaded transaction: ${remoteTransaction.transactionId}');
+                }
+              } else {
+                final localTransaction = TransactionEntity.fromMap(localResults.first);
+                if (remoteTransaction.updatedAt.isAfter(localTransaction.updatedAt)) {
+                  await _databaseService.update(
+                    'transactions',
+                    remoteTransaction.toMap(),
+                    where: 'transaction_id = ?',
+                    whereArgs: [remoteTransaction.transactionId],
+                  );
+                }
+              }
+            } catch (e) {
+              if (kDebugMode) {
+                debugPrint('Error processing remote transaction: $e');
+              }
             }
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('Error fetching remote transactions: $e');
           }
         }
       }

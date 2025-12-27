@@ -313,9 +313,43 @@ class FirebaseService {
           .where('requestStatus', isEqualTo: AppConstants.requestStatusPending)
           .get();
 
-      return snapshot.docs
-          .map((doc) => AccountRequestEntity.fromFirestore(doc.data(), doc.id))
-          .toList();
+      final requests = <AccountRequestEntity>[];
+      
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final fromUserId = data['fromUserId'] as String?;
+        
+        // الحصول على اسم المرسل
+        String? fromUserName;
+        String? fromUserEmail;
+        if (fromUserId != null) {
+          try {
+            final userDoc = await _firestore
+                .collection(AppConstants.collectionUsers)
+                .doc(fromUserId)
+                .get();
+            if (userDoc.exists) {
+              fromUserName = userDoc.data()?['username'] as String?;
+              fromUserEmail = userDoc.data()?['email'] as String?;
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              debugPrint('Error getting user name: $e');
+            }
+          }
+        }
+        
+        // إنشاء الكيان مع اسم المرسل
+        final requestWithName = AccountRequestEntity.fromFirestore({
+          ...data,
+          'fromUserName': fromUserName,
+          'fromUserEmail': fromUserEmail,
+        }, doc.id);
+        
+        requests.add(requestWithName);
+      }
+      
+      return requests;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Get incoming requests error: $e');
@@ -327,6 +361,22 @@ class FirebaseService {
   /// الرد على طلب حساب
   Future<bool> respondToAccountRequest(String requestId, bool accept, String? notes) async {
     try {
+      // الحصول على بيانات الطلب أولاً
+      final requestDoc = await _firestore
+          .collection(AppConstants.collectionRequests)
+          .doc(requestId)
+          .get();
+      
+      if (!requestDoc.exists) {
+        if (kDebugMode) {
+          debugPrint('Request not found: $requestId');
+        }
+        return false;
+      }
+      
+      final requestData = requestDoc.data()!;
+      
+      // تحديث حالة الطلب
       await _firestore
           .collection(AppConstants.collectionRequests)
           .doc(requestId)
@@ -337,12 +387,126 @@ class FirebaseService {
         'respondedAt': DateTime.now().toIso8601String(),
         'responseNotes': notes,
       });
+      
+      // إذا تم قبول الطلب، إنشاء الحساب المشترك
+      if (accept) {
+        final now = DateTime.now().toIso8601String();
+        final fromUserId = requestData['fromUserId'] as String;
+        final toUserId = requestData['toUserId'] as String;
+        final accountName = requestData['accountName'] as String;
+        final accountType = requestData['accountType'] as String;
+        
+        // إنشاء حساب مشترك للمرسل
+        final account1Data = {
+          'accountId': '${requestId}_${fromUserId}',
+          'userId': fromUserId,
+          'accountName': accountName,
+          'accountType': accountType,
+          'accountCategory': AppConstants.accountCategoryShared,
+          'balance': 0.0,
+          'currency': AppConstants.defaultCurrency,
+          'otherPartyId': toUserId,
+          'otherPartyName': await _getUserName(toUserId),
+          'accountStatus': AppConstants.accountStatusActive,
+          'createdBy': fromUserId,
+          'createdAt': now,
+          'updatedAt': now,
+          'linkedRequestId': requestId,
+        };
+        
+        // إنشاء حساب مشترك للمستقبل
+        final account2Data = {
+          'accountId': '${requestId}_${toUserId}',
+          'userId': toUserId,
+          'accountName': accountName,
+          'accountType': accountType,
+          'accountCategory': AppConstants.accountCategoryShared,
+          'balance': 0.0,
+          'currency': AppConstants.defaultCurrency,
+          'otherPartyId': fromUserId,
+          'otherPartyName': await _getUserName(fromUserId),
+          'accountStatus': AppConstants.accountStatusActive,
+          'createdBy': toUserId,
+          'createdAt': now,
+          'updatedAt': now,
+          'linkedRequestId': requestId,
+        };
+        
+        // حفظ الحسابات في Firestore
+        await _firestore
+            .collection(AppConstants.collectionAccounts)
+            .doc('${requestId}_${fromUserId}')
+            .set(account1Data);
+            
+        await _firestore
+            .collection(AppConstants.collectionAccounts)
+            .doc('${requestId}_${toUserId}')
+            .set(account2Data);
+            
+        if (kDebugMode) {
+          debugPrint('Shared accounts created successfully');
+        }
+        
+        // إرسال إشعار للمرسل
+        await _createNotification(
+          userId: fromUserId,
+          type: AppConstants.notificationTypeAccountRequest,
+          title: 'تم قبول طلبك',
+          body: 'تم قبول طلب الحساب المشترك "$accountName"',
+          relatedRequestId: requestId,
+        );
+      }
+      
       return true;
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Respond to account request error: $e');
       }
       return false;
+    }
+  }
+  
+  /// الحصول على اسم المستخدم
+  Future<String> _getUserName(String userId) async {
+    try {
+      final doc = await _firestore
+          .collection(AppConstants.collectionUsers)
+          .doc(userId)
+          .get();
+      if (doc.exists) {
+        return doc.data()?['username'] as String? ?? 'مستخدم';
+      }
+      return 'مستخدم';
+    } catch (e) {
+      return 'مستخدم';
+    }
+  }
+  
+  /// إنشاء إشعار
+  Future<void> _createNotification({
+    required String userId,
+    required String type,
+    required String title,
+    required String body,
+    String? relatedAccountId,
+    String? relatedRequestId,
+  }) async {
+    try {
+      await _firestore.collection(AppConstants.collectionNotifications).add({
+        'userId': userId,
+        'notificationType': type,
+        'title': title,
+        'body': body,
+        'relatedAccountId': relatedAccountId,
+        'relatedRequestId': relatedRequestId,
+        'isRead': false,
+        'isDeleted': false,
+        'createdAt': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Create notification error: $e');
+      }
     }
   }
 
