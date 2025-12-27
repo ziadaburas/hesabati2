@@ -4,3 +4,4 @@ export 'account_entity.dart';
 export 'transaction_entity.dart';
 export 'account_request_entity.dart';
 export 'notification_entity.dart';
+export 'shared_transaction_entity.dart';

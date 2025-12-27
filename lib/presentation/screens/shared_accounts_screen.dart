@@ -6,6 +6,8 @@ import '/data/services/firebase_service.dart';
 import '/domain/entities/entities.dart';
 import '/presentation/controllers/controllers.dart';
 import '/presentation/screens/create_shared_account_screen.dart';
+import '/presentation/screens/shared_account_details_screen.dart';
+import '/presentation/screens/pending_approvals_screen.dart';
 
 /// شاشة الحسابات المشتركة
 class SharedAccountsScreen extends StatefulWidget {
@@ -24,6 +26,7 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
   
   List<AccountEntity> _sharedAccounts = [];
   List<AccountRequestEntity> _pendingRequests = [];
+  List<SharedTransactionEntity> _pendingTransactions = [];
   bool _isLoading = true;
 
   @override
@@ -65,6 +68,9 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
       
       // تحميل الطلبات المعلقة
       _pendingRequests = await _firebaseService.getIncomingRequests(userId);
+      
+      // تحميل العمليات المعلقة التي تحتاج موافقة
+      _pendingTransactions = await _firebaseService.getPendingTransactionsForApproval(userId);
     } catch (e) {
       if (mounted) {
         Get.snackbar(
@@ -84,9 +90,50 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final totalPending = _pendingRequests.length + _pendingTransactions.length;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('الحسابات المشتركة'),
+        actions: [
+          // زر الموافقات المعلقة
+          if (totalPending > 0)
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_active),
+                  onPressed: () async {
+                    final result = await Get.to(() => PendingApprovalsScreen(
+                      pendingRequests: _pendingRequests,
+                      pendingTransactions: _pendingTransactions,
+                    ));
+                    if (result == true) {
+                      await _loadData();
+                    }
+                  },
+                ),
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppColors.error,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$totalPending',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: [
@@ -287,8 +334,14 @@ class _SharedAccountsScreenState extends State<SharedAccountsScreen>
             ),
           ],
         ),
-        onTap: () {
-          // فتح تفاصيل الحساب
+        onTap: () async {
+          // فتح تفاصيل الحساب المشترك
+          final result = await Get.to(() => SharedAccountDetailsScreen(
+            accountId: account.accountId,
+          ));
+          if (result == true) {
+            await _loadData();
+          }
         },
       ),
     );

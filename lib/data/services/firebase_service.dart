@@ -579,4 +579,263 @@ class FirebaseService {
       return false;
     }
   }
+
+  // ============ Shared Transactions Operations ============
+
+  /// إنشاء عملية مشتركة جديدة
+  Future<String?> createSharedTransaction(SharedTransactionEntity transaction) async {
+    try {
+      final docRef = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .add(transaction.toFirestore());
+      
+      // إرسال إشعار للطرف الآخر
+      await _createNotification(
+        userId: transaction.otherPartyUserId,
+        type: AppConstants.notificationTypeTransactionUpdate,
+        title: 'عملية جديدة تحتاج موافقتك',
+        body: 'طلب ${transaction.createdByUserName ?? 'مستخدم'} إضافة عملية بمبلغ ${transaction.amount} ${AppConstants.currencySymbol}',
+        relatedAccountId: transaction.accountId,
+      );
+      
+      return docRef.id;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Create shared transaction error: $e');
+      }
+      return null;
+    }
+  }
+
+  /// الحصول على العمليات المشتركة لحساب معين
+  Future<List<SharedTransactionEntity>> getSharedAccountTransactions(String accountId) async {
+    try {
+      // البحث بمعرف الحساب أو معرف الحساب المرتبط
+      final snapshot1 = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .where('accountId', isEqualTo: accountId)
+          .get();
+      
+      final snapshot2 = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .where('linkedAccountId', isEqualTo: accountId)
+          .get();
+
+      final allDocs = [...snapshot1.docs, ...snapshot2.docs];
+      
+      // إزالة التكرارات
+      final uniqueDocs = <String, dynamic>{};
+      for (final doc in allDocs) {
+        uniqueDocs[doc.id] = doc;
+      }
+
+      final transactions = uniqueDocs.values
+          .map((doc) => SharedTransactionEntity.fromFirestore(doc.data() as Map<String, dynamic>, doc.id))
+          .toList();
+
+      // ترتيب في الذاكرة
+      transactions.sort((a, b) => b.transactionDate.compareTo(a.transactionDate));
+      
+      return transactions;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Get shared account transactions error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// الحصول على العمليات المعلقة التي تحتاج موافقة المستخدم
+  Future<List<SharedTransactionEntity>> getPendingTransactionsForApproval(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .where('otherPartyUserId', isEqualTo: userId)
+          .where('sharedStatus', isEqualTo: AppConstants.sharedTransactionStatusPendingApproval)
+          .get();
+
+      final transactions = snapshot.docs
+          .map((doc) => SharedTransactionEntity.fromFirestore(doc.data(), doc.id))
+          .toList();
+
+      // ترتيب في الذاكرة
+      transactions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      
+      return transactions;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Get pending transactions for approval error: $e');
+      }
+      return [];
+    }
+  }
+
+  /// الموافقة على عملية مشتركة
+  Future<bool> approveSharedTransaction(String transactionId, String approverId) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      
+      // تحديث حالة العملية
+      await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .doc(transactionId)
+          .update({
+        'sharedStatus': AppConstants.sharedTransactionStatusApproved,
+        'approvedByUserId': approverId,
+        'approvedAt': now,
+        'updatedAt': now,
+      });
+
+      // الحصول على بيانات العملية لتحديث الرصيد وإرسال الإشعار
+      final transactionDoc = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .doc(transactionId)
+          .get();
+      
+      if (transactionDoc.exists) {
+        final data = transactionDoc.data()!;
+        final createdByUserId = data['createdByUserId'] as String;
+        final amount = (data['amount'] as num).toDouble();
+        final accountId = data['accountId'] as String;
+        final linkedAccountId = data['linkedAccountId'] as String;
+        final transactionType = data['transactionType'] as String;
+        
+        // تحديث رصيد الحسابين
+        await _updateSharedAccountBalance(accountId, amount, transactionType);
+        // الطرف الآخر - العملية العكسية
+        final reverseType = transactionType == AppConstants.transactionTypeIn 
+            ? AppConstants.transactionTypeOut 
+            : AppConstants.transactionTypeIn;
+        await _updateSharedAccountBalance(linkedAccountId, amount, reverseType);
+        
+        // إرسال إشعار لمنشئ العملية
+        await _createNotification(
+          userId: createdByUserId,
+          type: AppConstants.notificationTypeTransactionUpdate,
+          title: 'تمت الموافقة على العملية',
+          body: 'تمت الموافقة على عمليتك بمبلغ $amount ${AppConstants.currencySymbol}',
+          relatedAccountId: accountId,
+        );
+      }
+      
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Approve shared transaction error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// رفض عملية مشتركة
+  Future<bool> rejectSharedTransaction(String transactionId, String rejecterId, String? reason) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      
+      await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .doc(transactionId)
+          .update({
+        'sharedStatus': AppConstants.sharedTransactionStatusRejected,
+        'rejectionReason': reason,
+        'updatedAt': now,
+      });
+
+      // الحصول على بيانات العملية لإرسال الإشعار
+      final transactionDoc = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .doc(transactionId)
+          .get();
+      
+      if (transactionDoc.exists) {
+        final data = transactionDoc.data()!;
+        final createdByUserId = data['createdByUserId'] as String;
+        final amount = (data['amount'] as num).toDouble();
+        final accountId = data['accountId'] as String;
+        
+        // إرسال إشعار لمنشئ العملية
+        await _createNotification(
+          userId: createdByUserId,
+          type: AppConstants.notificationTypeTransactionUpdate,
+          title: 'تم رفض العملية',
+          body: 'تم رفض عمليتك بمبلغ $amount ${AppConstants.currencySymbol}${reason != null ? '\nالسبب: $reason' : ''}',
+          relatedAccountId: accountId,
+        );
+      }
+      
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Reject shared transaction error: $e');
+      }
+      return false;
+    }
+  }
+
+  /// تحديث رصيد الحساب المشترك
+  Future<void> _updateSharedAccountBalance(String accountId, double amount, String transactionType) async {
+    try {
+      final accountDoc = await _firestore
+          .collection(AppConstants.collectionAccounts)
+          .doc(accountId)
+          .get();
+      
+      if (accountDoc.exists) {
+        final currentBalance = (accountDoc.data()?['balance'] as num?)?.toDouble() ?? 0.0;
+        final newBalance = transactionType == AppConstants.transactionTypeIn
+            ? currentBalance + amount
+            : currentBalance - amount;
+        
+        await _firestore
+            .collection(AppConstants.collectionAccounts)
+            .doc(accountId)
+            .update({
+          'balance': newBalance,
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Update shared account balance error: $e');
+      }
+    }
+  }
+
+  /// الحصول على حساب مشترك بمعرفه
+  Future<AccountEntity?> getSharedAccountById(String accountId) async {
+    try {
+      final doc = await _firestore
+          .collection(AppConstants.collectionAccounts)
+          .doc(accountId)
+          .get();
+      
+      if (doc.exists) {
+        return AccountEntity.fromFirestore(doc.data()!, doc.id);
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Get shared account by id error: $e');
+      }
+      return null;
+    }
+  }
+
+  /// الحصول على عدد العمليات المعلقة للمستخدم
+  Future<int> getPendingTransactionsCount(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection(AppConstants.collectionSharedTransactions)
+          .where('otherPartyUserId', isEqualTo: userId)
+          .where('sharedStatus', isEqualTo: AppConstants.sharedTransactionStatusPendingApproval)
+          .get();
+
+      return snapshot.docs.length;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Get pending transactions count error: $e');
+      }
+      return 0;
+    }
+  }
 }

@@ -46,6 +46,12 @@ class AppConstants {
   static const String transactionStatusOffline = 'offline';
   static const String transactionStatusSynced = 'synced';
   
+  // Shared Transaction Status - حالات العمليات المشتركة
+  static const String sharedTransactionStatusOffline = 'offline';           // أوفلاين - لم يتم الإرسال بعد
+  static const String sharedTransactionStatusPendingApproval = 'pending_approval'; // قيد الانتظار - بانتظار موافقة الطرف الآخر
+  static const String sharedTransactionStatusApproved = 'approved';         // تمت الموافقة - أصبحت عملية معتمدة
+  static const String sharedTransactionStatusRejected = 'rejected';         // مرفوضة - رفضها الطرف الآخر
+  
   // Request Status
   static const String requestStatusPending = 'pending';
   static const String requestStatusAccepted = 'accepted';
@@ -98,4 +104,5 @@ class AppConstants {
   static const String collectionTransactions = 'transactions';
   static const String collectionRequests = 'account_requests';
   static const String collectionNotifications = 'notifications';
+  static const String collectionSharedTransactions = 'shared_transactions';
 }
