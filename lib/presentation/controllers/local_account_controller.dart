@@ -24,7 +24,23 @@ class LocalAccountController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    fetchLocalAccounts();
+    // لا نحمّل الحسابات هنا لأن المستخدم قد لا يكون موجوداً بعد
+    // سيتم تحميل الحسابات عند الحاجة من الشاشات
+    _initializeAfterAuth();
+  }
+  
+  /// تهيئة بعد التحقق من حالة المصادقة
+  Future<void> _initializeAfterAuth() async {
+    try {
+      // انتظر قليلاً للتأكد من تهيئة AuthController
+      await Future.delayed(const Duration(milliseconds: 500));
+      final authController = Get.find<AuthController>();
+      if (authController.isLoggedIn.value) {
+        await fetchLocalAccounts();
+      }
+    } catch (e) {
+      // AuthController قد لا يكون جاهزاً بعد
+    }
   }
 
   /// جلب جميع الحسابات المحلية

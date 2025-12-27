@@ -20,7 +20,7 @@ class AccountDetailsScreen extends StatefulWidget {
 
 class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   final LocalAccountController _accountController = Get.find<LocalAccountController>();
-  final TransactionController _transactionController = Get.put(TransactionController());
+  final TransactionController _transactionController = Get.find<TransactionController>();
   
   AccountEntity? _account;
   bool _isLoading = true;
@@ -34,6 +34,10 @@ class _AccountDetailsScreenState extends State<AccountDetailsScreen> {
   Future<void> _loadAccountDetails() async {
     setState(() => _isLoading = true);
     
+    // تحديث رصيد الحساب أولاً بناءً على العمليات
+    await _accountController.updateAccountBalance(widget.accountId);
+    
+    // ثم جلب بيانات الحساب المحدثة
     _account = await _accountController.getAccountById(widget.accountId);
     await _transactionController.fetchTransactions(widget.accountId);
     

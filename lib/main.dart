@@ -39,6 +39,9 @@ void _initializeControllers() {
   // Local Account Controller
   Get.put(LocalAccountController(), permanent: true);
   
+  // Transaction Controller - مهم لإدارة العمليات
+  Get.put(TransactionController(), permanent: true);
+  
   // Connectivity Service
   Get.put(ConnectivityService(), permanent: true);
   

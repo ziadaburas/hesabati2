@@ -4,6 +4,7 @@ import '/data/services/firestore_auth_service.dart';
 import '/data/services/database_service.dart';
 import '/domain/entities/entities.dart';
 import '/core/constants/app_constants.dart';
+import '/presentation/controllers/local_account_controller.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 
@@ -182,6 +183,16 @@ class AuthController extends GetxController {
       currentUser.value = localUser;
       isLoggedIn.value = true;
       userType.value = AppConstants.userTypeLocal;
+
+      // تحميل الحسابات للمستخدم الجديد (ستكون فارغة لكن مهم لتهيئة Controller)
+      try {
+        if (Get.isRegistered<LocalAccountController>()) {
+          final accountController = Get.find<LocalAccountController>();
+          await accountController.fetchLocalAccounts();
+        }
+      } catch (e) {
+        // LocalAccountController قد لا يكون موجوداً
+      }
 
       return true;
     } catch (e) {

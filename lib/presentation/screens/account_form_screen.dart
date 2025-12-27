@@ -4,6 +4,8 @@ import '/core/constants/app_colors.dart';
 import '/core/constants/app_constants.dart';
 import 'package:uuid/uuid.dart';
 import '/data/services/database_service.dart';
+import '/presentation/controllers/auth_controller.dart';
+import '/presentation/controllers/local_account_controller.dart';
 
 class AccountFormScreen extends StatefulWidget {
   final Map<String, dynamic>? account;
@@ -184,18 +186,39 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
     });
 
     try {
+      // الحصول على userId الفعلي من AuthController
+      final authController = Get.find<AuthController>();
+      final userId = authController.currentUserId;
+      
       final now = DateTime.now().toIso8601String();
+      
+      // عند التعديل، نحافظ على الرصيد الحالي إذا كان هناك عمليات
+      double balance;
+      if (widget.account != null) {
+        // الحصول على الرصيد الحالي من العمليات
+        final accountController = Get.find<LocalAccountController>();
+        final existingAccount = await accountController.getAccountById(widget.account!['account_id']);
+        if (existingAccount != null) {
+          // نحافظ على الرصيد المحسوب من العمليات
+          balance = existingAccount.balance;
+        } else {
+          balance = double.tryParse(_balanceController.text) ?? 0.0;
+        }
+      } else {
+        balance = double.tryParse(_balanceController.text) ?? 0.0;
+      }
+      
       final accountData = {
         'account_id': widget.account?['account_id'] ?? const Uuid().v4(),
-        'user_id': 'local_user', // For local mode
+        'user_id': userId,
         'account_name': _nameController.text,
         'account_type': _selectedType,
         'account_category': AppConstants.accountCategoryLocal,
-        'balance': double.tryParse(_balanceController.text) ?? 0.0,
+        'balance': balance,
         'currency': AppConstants.defaultCurrency,
-        'other_party_name': _otherPartyController.text,
+        'other_party_name': _otherPartyController.text.isNotEmpty ? _otherPartyController.text : null,
         'account_status': AppConstants.accountStatusActive,
-        'created_by': 'local_user',
+        'created_by': userId,
         'created_at': widget.account?['created_at'] ?? now,
         'updated_at': now,
         'is_synced': 0,
@@ -203,8 +226,31 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
       };
 
       if (widget.account == null) {
-        // Create new account
+        // إنشاء حساب جديد - هنا نستخدم الرصيد الأولي المدخل
+        accountData['balance'] = double.tryParse(_balanceController.text) ?? 0.0;
         await DatabaseService.instance.insert('accounts', accountData);
+        
+        // إذا كان هناك رصيد أولي، نضيف عملية وارد
+        final initialBalance = double.tryParse(_balanceController.text) ?? 0.0;
+        if (initialBalance > 0) {
+          final transactionData = {
+            'transaction_id': const Uuid().v4(),
+            'account_id': accountData['account_id'],
+            'amount': initialBalance,
+            'transaction_type': AppConstants.transactionTypeIn,
+            'description': 'رصيد أولي',
+            'notes': null,
+            'transaction_date': now,
+            'recorded_by_user': userId,
+            'approved_by_user': null,
+            'status': AppConstants.transactionStatusCompleted,
+            'transaction_status': AppConstants.syncStatusOffline,
+            'created_at': now,
+            'updated_at': now,
+            'is_synced': 0,
+          };
+          await DatabaseService.instance.insert('transactions', transactionData);
+        }
         
         Get.snackbar(
           'نجح',
@@ -214,7 +260,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           colorText: Colors.white,
         );
       } else {
-        // Update existing account
+        // تحديث الحساب الموجود
         await DatabaseService.instance.update(
           'accounts',
           accountData,
@@ -230,6 +276,10 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           colorText: Colors.white,
         );
       }
+
+      // تحديث قائمة الحسابات
+      final accountController = Get.find<LocalAccountController>();
+      await accountController.fetchLocalAccounts();
 
       Get.back(result: true);
     } catch (e) {
