@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '/firebase_options.dart';
 import '/core/themes/app_theme.dart';
 import '/core/constants/app_constants.dart';
@@ -8,9 +10,20 @@ import '/core/localization/localization_service.dart';
 import '/data/services/database_service.dart';
 import '/data/services/connectivity_service.dart';
 import '/data/services/sync_service.dart';
+import '/data/services/notification_service.dart';
 import '/presentation/controllers/controllers.dart';
 import '/presentation/screens/splash_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+
+/// Background message handler - must be top-level function
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (kDebugMode) {
+    debugPrint('Handling background message: ${message.messageId}');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -19,13 +32,38 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
+  // Set up Firebase Messaging background handler
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  
   // Initialize Database
   await DatabaseService.instance.database;
   
   // Initialize Controllers
   _initializeControllers();
   
+  // Initialize Notification Service
+  await _initializeNotificationService();
+  
   runApp(const HesabatiApp());
+}
+
+/// Initialize Notification Service
+Future<void> _initializeNotificationService() async {
+  try {
+    // Register NotificationService
+    await Get.putAsync(() => NotificationService().init(), permanent: true);
+    
+    // Register NotificationController
+    Get.put(NotificationController(), permanent: true);
+    
+    if (kDebugMode) {
+      debugPrint('Notification Service initialized successfully');
+    }
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('Error initializing notification service: $e');
+    }
+  }
 }
 
 /// تهيئة جميع Controllers

@@ -1,3 +1,15 @@
+// 1. أضف هذا الجزء في البداية تماماً
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // هذا هو السطر المطلوب لربط خدمات جوجل
+        classpath 'com.google.gms:google-services:4.4.1'
+    }
+}
+
 allprojects {
     repositories {
         google()

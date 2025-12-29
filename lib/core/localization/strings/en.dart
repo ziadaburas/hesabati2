@@ -138,6 +138,14 @@ const Map<String, String> enStrings = {
   'notifications': 'Notifications',
   'no_notifications': 'No notifications',
   'mark_all_read': 'Mark All Read',
+  'push_notifications': 'Push Notifications',
+  'no_push_notifications': 'No push notifications',
+  'notification_service_unavailable': 'Notification service unavailable',
+  'fcm_token_copied': 'FCM Token copied',
+  'fcm_token_for_testing': 'FCM Token (for testing)',
+  'notification_deleted': 'Notification deleted',
+  'all_notifications_read': 'All notifications marked as read',
+  'all_notifications_deleted': 'All notifications deleted',
   
   // Sync
   'sync': 'Sync',

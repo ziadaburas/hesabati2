@@ -138,6 +138,14 @@ const Map<String, String> arStrings = {
   'notifications': 'الإشعارات',
   'no_notifications': 'لا توجد إشعارات',
   'mark_all_read': 'قراءة الكل',
+  'push_notifications': 'إشعارات Push',
+  'no_push_notifications': 'لا توجد إشعارات Push',
+  'notification_service_unavailable': 'خدمة الإشعارات غير متوفرة',
+  'fcm_token_copied': 'تم نسخ FCM Token',
+  'fcm_token_for_testing': 'FCM Token (للاختبار)',
+  'notification_deleted': 'تم حذف الإشعار',
+  'all_notifications_read': 'تم تحديد جميع الإشعارات كمقروءة',
+  'all_notifications_deleted': 'تم حذف جميع الإشعارات',
   
   // المزامنة
   'sync': 'المزامنة',
